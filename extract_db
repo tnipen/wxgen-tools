@@ -29,7 +29,8 @@ def main():
     X = len(ifile.dimensions['longitude'])
     Y = len(ifile.dimensions['latitude'])
 
-    dim_vars = ['time', 'forecast_reference_time', 'latitude', 'longitude', 'projection_regular_ll']
+    dim_vars = ['time', 'forecast_reference_time', 'latitude', 'longitude', 'projection_regular_ll',
+    'altitude']
     non_dim_vars = [var for var in ifile.variables if var not in dim_vars]
 
     if args.pfilename is not None:
@@ -53,6 +54,7 @@ def main():
     ofile.createVariable('time', 'i8', ['time'])
     ofile.createVariable('latitude', 'f4', [dimname])
     ofile.createVariable('longitude', 'f4', [dimname])
+    ofile.createVariable('altitude', 'f4', [dimname])
     for var in non_dim_vars:
         ofile.createVariable(var, 'f4', ['forecast_reference_time', 'time', 'ensemble_member', dimname])
 
@@ -64,7 +66,9 @@ def main():
     Iy = [None] * len(points)
     ilats = ifile.variables['latitude'][:]
     ilons = ifile.variables['longitude'][:]
+    ialts = ifile.variables['altitude'][:]
     # ilons, ilats = np.meshgrid(ifile.variables['longitude'][:], ifile.variables['latitude'][:])
+    print non_dim_vars
     for i, point in enumerate(points):
         # dist = (ilats - point['lat']) ** 2 + (ilons - point['lon']) ** 2
         # indices = np.unravel_index(dist.argmin(), dist.shape)
@@ -80,6 +84,7 @@ def main():
         ofile.variables[var][:] = ifile.variables[var][:]
     ofile.variables['longitude'][:] = ilons[Iy]
     ofile.variables['latitude'][:] = ilats[Iy]
+    ofile.variables['altitude'][:] = ialts[Iy]
     for var in non_dim_vars:
         for i, point in enumerate(points):
             ofile.variables[var][:, :, :, i] = ifile.variables[var][:, :, :, Iy[i], Ix[i]]
