@@ -1,0 +1,8 @@
+Tools to set up data for wxgen
+------------------------------
+
+1) Download from MARS
+2) Create database from GRIB
+3) Find optimal joining points
+4) Extract to points database (focus points and joining points)
+5) Calibrate database

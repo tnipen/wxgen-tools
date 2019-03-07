@@ -1,0 +1,149 @@
+#!/usr/bin/env python
+import os
+import sys
+import numpy as np
+import matplotlib.pylab as mpl
+import argparse
+import wxgen.util
+import netCDF
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Climate adjust all lead-times in a NetCDF database')
+    parser.add_argument('file', help='NetCDF database')
+    parser.add_argument('-o', type=str, help="Output file", dest="ofile", required=True)
+    parser.add_argument('--debug', help='Show debug info', action="store_true")
+    parser.add_argument('-g', help='Do calibration separately on each gridpoint?', dest="gridded", action="store_true")
+    parser.add_argument('-lt', help='Which leadtimes to use for calibration?', dest="leadtimes")
+    parser.add_argument('-v', help='Which variables to calibrate?', dest="variables")
+
+    if len(sys.argv) == 1:
+        parser.print_help()
+        sys.exit(1)
+
+    args = parser.parse_args()
+    if args.file == args.ofile:
+        wxgen.util.error("Input file must be different than the output file")
+
+
+    shutil.copy(args.file, args.ofile)
+    ifile = netCDF4.Dataset(args.file, 'r')
+    # Which calibration function to use on each variable?
+    var2func = {"air_temperature_2m": quantile_mapping,
+          "precipitation_amount": quantile_mapping,
+          "sea_level_pressure": multiplication,
+          "cloud_area_fraction": addition,
+          "x_wind_10m": multiplication,
+          "y_wind_10m": multiplication}
+
+    # Which variables to calibrate
+    # vars = [var for var in ifile.variables if var not in ["latitude", "longitude", "forecast_reference_time", "projection_regular_ll"]]
+    vars = ares.vars.split(',')
+
+    # Write to output file
+    times = ifile.variables["time"][:]
+    leadtimes = range(len(times))
+    for var in vars:
+        ofile = netCDF4.Dataset(args.ofile, 'a')
+        print var
+        sys.stdout.flush()
+        func = var2func[var]
+
+        """
+        For each leadtime, find the leadtime to use as reference. This will
+        be the earliest leadtime for the same time of day.
+        """
+        Irefs = [np.where(times[i] % 86400 == times % 86400)[0][0] for i in leadtimes]
+
+        if args.gridded:
+            data = ifile.variables[var][:]
+            # frt, time, ens, lat, lon
+            Y = data.shape[3]
+            X = data.shape[4]
+            print "Allocating %d GB" % (np.product(ofile.variables[var].shape) / 1024.0 / 1024.0 / 1024.0 * 4.0)
+            q = np.zeros(ofile.variables[var].shape, float)
+
+            """
+            It might be possible to parallelize x and y, but it requires some work
+            to parallelize the calibration functions
+            """
+            for x in range(X):
+                for y in range(Y):
+                    for i in leadtimes:
+                        Iref = Irefs[i]
+                        if i == Iref:
+                            # Don't calibrate if reference leadtime
+                            q[:, i, :, y, x] = data[:, i, :, y, x]
+                        else:
+                            yy = np.sort(data[:, Iref, :, y, x].flat)
+                            xx = np.sort(data[:, i, :, y, x].flat)
+                            values = func(data[:, i, :, y, x].flat, xx, yy)
+                            # import matplotlib.pyplot as mpl
+                            # mpl.plot(values - ifile.variables[var][:, i, :, :, :].flatten())
+                            # mpl.show()
+
+                            reshaped = np.reshape(values, [ofile.variables[var].shape[0], ofile.variables[var].shape[2]])
+                            q[:, i, :, y, x] = reshaped
+            ofile.variables[var][:] = q
+        else:
+            data = ifile.variables[var]
+            for i in leadtimes:
+                print "Leadtime %d" % i
+                Iref = Irefs[i]
+                print "Average before: %.3f" % np.mean(ifile.variables[var][:, i, :, :, :].flat, dtype=np.float64)
+                if i == Iref:
+                    ofile.variables[var][:, i, :, :, :] = ifile.variables[var][:, i, :, :, :]
+                else:
+                    dataref = data[:, Iref, :, :, :]
+                    xx = np.sort(data[:, i, :, :, :].flat)
+                    yy = np.sort(dataref[:, :, :, :].flat)
+                    values = func(ifile.variables[var][:, i, :, :, :].flat, xx, yy)
+                    shape = [size for size in ofile.variables[var].shape]
+                    shape = [shape[i] for i in range(len(shape)) if i != 1]
+                    reshaped = np.reshape(values, shape)
+                    ofile.variables[var][:, i, :, :, :] = reshaped
+                    print "Average after: %.3f" % np.mean(values, dtype=np.float64)
+        ofile.close()
+
+    ofile = netCDF4.Dataset(args.ofile, 'a')
+
+    # Add history string
+    history_str = "%s Calibrated database:" % (datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S +00:00'))
+    if args.gridded:
+        history_str += " gridded"
+    if hasattr(ifile, "history"):
+        history_str = ifile.history + '\n' + history_str
+    ofile.history = history_str
+
+    ifile.close()
+    ofile.close()
+
+
+def addition(x, xx, yy):
+    bias = np.mean(yy, dtype=np.float64) - np.mean(xx, dtype=np.float64)
+    return x + bias
+
+
+def multiplication(x, xx, yy):
+    bias = np.mean(yy, dtype=np.float64) / np.mean(xx, dtype=np.float64)
+    return x * bias
+
+
+def quantile_mapping(x, xx, yy, min=None):
+    """
+    Arguments:
+       x (np.array): x-axis values to interpolate to
+       xx (np.array): x-axis control points
+       yy (np.array): y-axis control points 
+       min (float): Minimum value
+
+    xx and yy must be sorted
+   
+    Returns:
+       y (np.array): y-axis interpolated values
+    """
+    return np.interp(x, xx, yy)
+
+
+if __name__ == "__main__":
+    main()

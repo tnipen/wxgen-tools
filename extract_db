@@ -1,0 +1,113 @@
+#!/usr/bin/env python
+import os
+import sys
+import numpy as np
+import matplotlib.pylab as mpl
+import argparse
+import verif.util
+import netCDF4
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Create database with concatinated location dimension')
+    parser.add_argument('database', help='Input database')
+    parser.add_argument('-p', help='Points file. If not specified, use all grid points', dest='pfilename')
+    parser.add_argument('-o', help='Output file', dest='ofilename', required=True)
+
+    if len(sys.argv) == 1:
+        parser.print_help()
+        sys.exit(1)
+
+    args = parser.parse_args()
+    ifile = netCDF4.Dataset(args.database, 'r')
+
+    dimname = 'location'
+
+    T = len(ifile.dimensions['time'])
+    FRT = len(ifile.dimensions['forecast_reference_time'])
+    E = len(ifile.dimensions['ensemble_member'])
+    X = len(ifile.dimensions['longitude'])
+    Y = len(ifile.dimensions['latitude'])
+
+    dim_vars = ['time', 'forecast_reference_time', 'latitude', 'longitude', 'projection_regular_ll']
+    non_dim_vars = [var for var in ifile.variables if var not in dim_vars]
+
+    if args.pfilename is not None:
+        points = read_points_file(args.pfilename)
+    else:
+        # Extract list of all points from the input database
+        points = list()
+        raise NotImplementedError
+
+    L = len(points)
+
+    """
+    Set up database structure
+    """
+    ofile = netCDF4.Dataset(args.ofilename, 'w')
+    ofile.createDimension('time', T)
+    ofile.createDimension('forecast_reference_time', FRT)
+    ofile.createDimension('ensemble_member', E)
+    ofile.createDimension(dimname, L)
+    ofile.createVariable('forecast_reference_time', 'i8', ['forecast_reference_time'])
+    ofile.createVariable('time', 'i8', ['time'])
+    ofile.createVariable('latitude', 'f4', [dimname])
+    ofile.createVariable('longitude', 'f4', [dimname])
+    for var in non_dim_vars:
+        ofile.createVariable(var, 'f4', ['forecast_reference_time', 'time', 'ensemble_member', dimname])
+
+
+    """
+    Find gridpoint for each point
+    """
+    Ix = [None] * len(points)
+    Iy = [None] * len(points)
+    ilats = ifile.variables['latitude'][:]
+    ilons = ifile.variables['longitude'][:]
+    # ilons, ilats = np.meshgrid(ifile.variables['longitude'][:], ifile.variables['latitude'][:])
+    for i, point in enumerate(points):
+        # dist = (ilats - point['lat']) ** 2 + (ilons - point['lon']) ** 2
+        # indices = np.unravel_index(dist.argmin(), dist.shape)
+        # Ix[i] = indices[0]
+        # Iy[i] = indices[1]
+        Ix[i] = np.argmin(np.abs(ilons - point['lon']))
+        Iy[i] = np.argmin(np.abs(ilats - point['lat']))
+
+    """
+    Copy data
+    """
+    for var in ['time', 'forecast_reference_time']:
+        ofile.variables[var][:] = ifile.variables[var][:]
+    ofile.variables['longitude'][:] = ilons[Iy]
+    ofile.variables['latitude'][:] = ilats[Iy]
+    for var in non_dim_vars:
+        for i, point in enumerate(points):
+            ofile.variables[var][:, :, :, i] = ifile.variables[var][:, :, :, Iy[i], Ix[i]]
+
+    history = ""
+    if hasattr(ofile, 'history'):
+        history = ofile.histor+ '\n'
+    history += 'Extracted points'
+    setattr(ofile, 'history', history)
+
+    ofile.close()
+    ifile.close()
+
+
+def read_points_file(filename):
+    points = list()
+    file = open(filename, 'r')
+    header = file.readline().strip().split(';')
+    for line in file:
+        words = line.strip().split(';')
+        curr = dict()
+        curr['lat'] = float(words[header.index('lat')])
+        curr['lon'] = float(words[header.index('lon')])
+        points += [curr]
+
+    file.close()
+
+    return points
+
+if __name__ == "__main__":
+    main()

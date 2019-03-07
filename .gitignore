@@ -1,0 +1,11 @@
+*~
+.*swp
+*.nc
+*.pyc
+*.png
+*.jpg
+*.egg-info
+*.prof
+*.lprof
+data
+devel
