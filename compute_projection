@@ -1,0 +1,70 @@
+#!/usr/bin/env python
+import os
+import sys
+import numpy as np
+import matplotlib.pylab as mpl
+import argparse
+import verif.util
+import netCDF4
+import pyproj
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Adds projection information such as x and y')
+    parser.add_argument('file', help='')
+    parser.add_argument('-p', default='+proj=utm +zone=33 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', help='Projection string (proj4)', dest='projection')
+    parser.add_argument('-f', help='Overwrite existing information?', dest='force', action='store_true')
+
+    if len(sys.argv) == 1:
+        parser.print_help()
+        sys.exit(1)
+
+    args = parser.parse_args()
+
+    file = netCDF4.Dataset(args.file, 'a')
+
+    # Check dimesniosn
+    dims = ['grid_point']
+    for dim in dims:
+        if dim not in file.dimensions:
+            verif.util.error('Required dimension "%s" not in file' % dim)
+
+    has_latlon = ('latitude' in file.variables or 'lat' in file.variables) and ('longitude' in file.variables or 'lon' in file.variables)
+    has_xy = 'x' in file.variables and 'y' in file.variables
+
+    if not has_latlon and not has_xy:
+        verif.util.error("File has neither lat/lon nor x/y")
+    if has_latlon and has_xy:
+        print("File already both lat/lon and x/y")
+        sys.exit(1)
+
+    # Check if information is already in the file
+    if 'x' not in file.variables:
+        file.createVariable('x', 'f8', dims)
+    if 'y' not in file.variables:
+        file.createVariable('y', 'f8', dims)
+    if 'latitude' not in file.variables:
+        file.createVariable('latitude', 'f8', dims)
+    if 'longitude' not in file.variables:
+        file.createVariable('longitude', 'f8', dims)
+
+    # Write projection information
+    proj = pyproj.Proj(args.projection)
+    if not has_xy:
+        lons = file.variables["longitude"][:]
+        lats = file.variables["latitude"][:]
+        x, y = proj(lons, lats)
+        file.variables['x'][:] = x
+        file.variables['y'][:] = y
+    elif not has_latlon:
+        x = file.variables["x"][:]
+        y = file.variables["y"][:]
+        lons, lats = proj(x, y, inverse=True)
+        file.variables['longitude'][:] = lons
+        file.variables['latitude'][:] = lats
+
+    file.close()
+
+
+if __name__ == "__main__":
+    main()

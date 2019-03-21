@@ -1,0 +1,16 @@
+#!/bin/bash
+
+ifile=$1
+
+if [ "$1" = "" ]; then
+    exit
+fi
+if [ "$2" = "" ]; then
+    ofile=$1
+else
+    ofile=$2
+fi
+cp $ifile $ofile
+ncrename -d time,lead_time -v time,lead_time $ofile
+ncrename -d forecast_reference_time,time -v forecast_reference_time,time $ofile
+ncrename -d .location,grid_point -v .location,grid_point $ofile

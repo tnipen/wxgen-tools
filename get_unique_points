@@ -1,0 +1,49 @@
+#!/usr/bin/env python
+import os
+import sys
+import numpy as np
+import matplotlib.pylab as mpl
+import argparse
+import verif.util
+import netCDF4
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Extracts all points in NetCDF file and writes them to a text file')
+    parser.add_argument('ifile', help='Netcdf file with grid points')
+    parser.add_argument('ofile', help='Text file to write lat/lon information to')
+    parser.add_argument('-r', default=0.2, type=float, help='Round points to this resolution', dest='resolution')
+
+    if len(sys.argv) == 1:
+        parser.print_help()
+        sys.exit(1)
+
+    args = parser.parse_args()
+    file = netCDF4.Dataset(args.ifile, 'r')
+    lons = file.variables['longitude'][:]
+    lats = file.variables['latitude'][:]
+    lons = [np.round(lon / args.resolution) * args.resolution for lon in lons]
+    lats = [np.round(lat / args.resolution) * args.resolution for lat in lats]
+    coords = list(set(zip(lats, lons)))
+    #altitude_variables = ['z', 'altitude', 'elev']
+    #elevs = None
+    #for variable in altitude_variables:
+    #    if variable in file.variables:
+    #        elevs = file.variables[variable][:]
+    #        break
+
+    file.close()
+    file = open(args.ofile, 'w')
+    #if elevs is None:
+    file.write('lat;lon\n')
+    for i in range(len(coords)):
+        file.write('%g;%g\n' % (coords[i][0], coords[i][1]))
+    #else:
+    #    file.write('lat lon elev\n')
+    #    for i in range(len(lons)):
+    #        file.write('%g %g %g\n' % (coords[i][0], coords[i][1], elevs[indices[i]]))
+    file.close()
+
+
+if __name__ == "__main__":
+    main()
