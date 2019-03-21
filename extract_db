@@ -84,7 +84,7 @@ def main():
         ofile.variables[var][:] = ifile.variables[var][:]
     ofile.variables['longitude'][:] = ilons[Iy]
     ofile.variables['latitude'][:] = ilats[Iy]
-    ofile.variables['altitude'][:] = ialts[Iy]
+    ofile.variables['altitude'][:] = ialts[Iy, Ix]
     for var in non_dim_vars:
         for i, point in enumerate(points):
             ofile.variables[var][:, :, :, i] = ifile.variables[var][:, :, :, Iy[i], Ix[i]]
