@@ -1,22 +1,133 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import os
 import sys
-import numpy as np
-import matplotlib.pylab as mpl
 import argparse
-import verif.util
-import netCDF
+import datetime
+from ecmwfapi import ECMWFService
 
 
 def main():
     parser = argparse.ArgumentParser(description='')
-    parser.add_argument('file', help='')
-
-    if len(sys.argv) == 1:
-        parser.print_help()
-        sys.exit(1)
+    parser.add_argument('-o', help='Output filename', dest="ofilename", required=True)
+    parser.add_argument('-f', help='Overwrite existing file?', dest="force", action="store_true")
+    parser.add_argument('-d', type=int, help='Hindcast run date', dest="date", required=True)
 
     args = parser.parse_args()
+    dates = get_hindcast_runs()
+    if(args.date not in dates):
+        print("Not a valid hindcast date")
+        sys.exit()
+
+    download(args.ofilename, args.date, [60,61], [10,11], True)
+    #download_geopotential("geopotential.grb", [60,61], [10,11])
+
+
+def download(filename, date, lat_range, lon_range, control, resolution=0.2):
+    """
+    Arguments:
+       filename (str): Write output to this grib file
+       date (int): Reforecast run date (YYYYMMDD)
+       lat_range (list): [min, max]
+       lon_range (list): [min, max]
+       control (bool): True to fetch the control, otherwise fetch perturbed members
+       resolution (float): Grid resolution (in degrees) to retrieve data for
+    """
+
+    assert(len(lat_range) == 2)
+    assert(len(lon_range) == 2)
+
+    domain_str = "%d/%d/%d/%d" % (lat_range[0], lon_range[0], lat_range[1], lon_range[1])
+    hdates = get_hindcast_dates(date)
+    hdates_str = '/'.join([str(int(x)) for x in hdates])
+
+    server = ECMWFService("mars")
+    """ Grib codes
+    134 Surface pressure (use sea level pressure instead)
+    143 Convective precipitation
+    151 Sea level pressure
+    164 Total cloud cover
+    165 10m U wind
+    166 0m V wind
+    167 2m temperature
+    168 2m dewpoint temperature
+    169 Surface solar radiation
+    228 Total precipitation
+    """
+    req = {
+          "class": "od",
+          "hdate": hdates_str,
+          "date":  date,
+          "stream": "enfh",
+          "expver": "0001",
+          "levtype": "sfc",
+          "param": "143/151/164/165/166/167/168/169/228",
+          "step": "0/to/360/by/6",
+          "time": "00",
+          "grid": "%g/%g" % (resolution, resolution),
+          "area": domain_str,
+          }
+    if control:
+        req["ensemble"] = "0"
+        req["type"] = "cf"
+    else:
+        req["ensemble"] = "1/2/3/4/5/6/7/8/9/10"
+        req["type"] = "pf"
+    print(req)
+    # server.execute(req ,filename)
+
+
+def download_geopotential(filename, lat_range, lon_range, resolution=0.2):
+    """ Downloads the geopotential height field """
+    domain_str = "%d/%d/%d/%d" % (lat_range[0], lon_range[0], lat_range[1], lon_range[1])
+    server = ECMWFService("mars")
+    req = {
+         "class": "od",
+         "hdate": "20150310",
+         "date":  "20160310",
+         "stream": "enfh",
+         "expver": "0001",
+         "levtype": "sfc",
+         "param": "129.128",
+         "step": "0",
+         "time": "00",
+         "grid": "%g/%g" % (resolution, resolution),
+         "area": domain_str,
+         "ensemble": "0",
+         "type": "cf"
+         }
+    print(req)
+    server.execute(req ,filename)
+
+
+def get_hindcast_dates(hindcast_run_date):
+    """ Gets available hindcast dates (YYYYMMDD) for a given hindcast run date.
+        Should be the same day of the year for the last 20 years.
+    """
+    year = int(hindcast_run_date / 10000)
+    hdates = [y * 10000 + hindcast_run_date % 10000 for y in range(year - 20, year)]
+
+    return hdates
+
+def get_hindcast_runs():
+    """ Returns a list of YYYYMMDD values for which there are reforecasts runs available
+        Only download dates after ECMWF changed to 0.2 degree resolution, which happened on 20160308
+    """
+    start_dates = [20160310, 20160314]  # Twice a week
+    end_date = int(datetime.date.today().strftime("%Y%m%d"))
+    dates = list()
+
+    for start_date in start_dates:
+        date = start_date
+        while date < end_date:
+            dates += [date]
+            year = date // 10000
+            month = date // 100 % 100
+            day = int(date % 100)
+            # Increment date by 1 week
+            date = int((datetime.datetime(year, month, day, 0) + datetime.timedelta(7)).strftime('%Y%m%d'))
+
+    list.sort(dates)
+    return dates
 
 
 if __name__ == "__main__":
