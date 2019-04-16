@@ -14,11 +14,13 @@ def main():
     parser.add_argument('db', help='Database file')
     parser.add_argument('-o', help='Config file', dest='ofilename')
     parser.add_argument('-v', default='air_temperature_2m', help='Target variable', dest='target')
-    parser.add_argument('-vp', default='air_temperature_2m', help='Predictor variable', dest='predictor')
-    parser.add_argument('-dt', default=[1], type=parse_ints, help='Which timestep forward in time to predict?', dest='dt')
+    parser.add_argument('-vp', default='air_temperature_2m', help='Predictor variable', dest='predictors')
+    parser.add_argument('-dt', default=1, type=int, help='Which timestep forward in time to predict (in number of days)?', dest='dt')
+    parser.add_argument('-lt', default=4, type=int, help='Which leadtime?', dest='leadtime')
     parser.add_argument('-t', type=parse_ints, help='Which times to use. Empty to use all.', dest='times')
     parser.add_argument('-e', type=parse_ints, help='Which members to use. Empty to use all.', dest='ens')
     parser.add_argument('-g', type=parse_ints, help='Which grid points to use. Empty to use all.', dest='gridpoints')
+    parser.add_argument('-n', default=3, type=int, help='Number of iterations', dest='num_iterations')
 
     if len(sys.argv) == 1:
         parser.print_help()
@@ -27,6 +29,7 @@ def main():
     args = parser.parse_args()
     db = netCDF4.Dataset(args.db, 'r')
     var = db.variables['air_temperature_2m']
+    var_predictors = list(set(args.predictors.split(',')))
 
     if args.times is None:
         It = range(len(db.dimensions['time']))
@@ -43,70 +46,80 @@ def main():
 
     lons = db.variables['longitude'][Ig]
     lats = db.variables['latitude'][Ig]
+    LT = len(db.dimensions['lead_time'])
+    V = len(var_predictors)
 
     # Subset data
-    predictor_data = np.moveaxis(db.variables[args.predictor][It, :, Ie, Ig], 2, 1)
+    predictor_data = np.zeros([len(It) * len(Ie), LT, len(Ig), V], 'float32')
+    for v, var in enumerate(var_predictors):
+        curr = np.moveaxis(db.variables[var][It, :, Ie, Ig], 2, 1)
+        shape = curr.shape
+        curr = curr.reshape(shape[0] * shape[1], shape[2], shape[3])
+        predictor_data[:, :, :, v] = curr
+
     target_data = np.moveaxis(db.variables[args.target][It, :, Ie, Ig], 2, 1)
 
     # Collapse time and ensemble dimension
-    shape = predictor_data.shape
-    predictor_data = predictor_data.reshape(shape[0] * shape[1], shape[2], shape[3])
     target_data = target_data.reshape(shape[0] * shape[1], shape[2], shape[3])
-    Ilt = 4
-    target = target_data[:, Ilt + 4, :]
-    predictors = predictor_data[:, Ilt, :]
+    target = target_data[:, args.leadtime + args.dt * 4, :]
+    predictors = predictor_data[:, args.leadtime, :]
 
-    G = target_data.shape[2] # len(db.dimensions['grid_point'])
+    G = target_data.shape[2]
     C = target_data.shape[0]
 
-    print("Cases: %d Grid points: %d" % (C, G))
+    print("Cases: %d Grid points: %d variables: %d" % (C, G, V))
+    print(var_predictors)
 
     metric = Mae()
-
-    # Target dataset: cases, leadtimes, grid_points
-    # Target0 cases, grid_points
-    # Target1 cases, grid_points
-
     # Create
     # Scores matrix Mij How good is predictor set i when comparing with j
     scores = calculate_matrix(target)
 
-    N = 10
 
     # Find analogs
-    gscores = np.zeros([N, G], 'float32')
+    gscores = np.zeros([args.num_iterations, G, V], 'float32')
     gbest = []
-    for n in range(N):
+    for n in range(args.num_iterations):
         for g in range(G):
             # print g
-            for c in range(C):
-                curr = np.abs(predictors[c, g] - predictors[:, g])
-                for gb in gbest:
-                    curr += np.abs(predictors[c, gb] - predictors[:, g])
-                I = np.argsort(curr)
-                Ibest = I[1:5]
-                gscores[n, g] += np.mean(scores[c, Ibest])
+            for v in range(V):
+                for c in range(C):
+                    curr = np.abs(predictors[c, g, v] - predictors[:, g, v])
+                    for gb in gbest:
+                        g0, g1 = np.unravel_index(gb, [G, V])
+                        curr += np.abs(predictors[c, g0, g1] - predictors[:, g, g1])
+                    I = np.argsort(curr)
+                    Ibest = I[1:5]
+                    gscores[n, g, v] += np.mean(scores[c, Ibest])
         gscores[n, :] /= C
         # Don't allow a point to be picked again
-        all_gbest = [q for q in np.argsort(gscores[n, :]) if q not in gbest]
+        all_gbest = [q for q in np.argsort(gscores[n, :, :].flatten()) if q not in gbest]
+        print all_gbest[0:10]
         curr_gbest = all_gbest[0]
         print curr_gbest
+        print np.unravel_index(curr_gbest, [G, V])
         gbest += [curr_gbest]
+    print np.min(np.min(gscores, axis=2), axis=1)
     print np.min(gscores, axis=1)
 
+    for gb in gbest:
+        I0, I1 = np.unravel_index(gb, [G, V])
+        print "Gridpoint %d lat=%.1f lon=%.1f Variable %s" % (I0, lats[I0], lons[I0], var_predictors[I1])
 
     # Write data to output file
     ofile = netCDF4.Dataset(args.ofilename, 'w')
     ofile.createDimension('grid_point', G)
-    ofile.createDimension('time', N)
+    ofile.createDimension('time', args.num_iterations)
     ofile.createVariable('latitude', 'f4', ['grid_point'])
     ofile.createVariable('longitude', 'f4', ['grid_point'])
-    ofile.createVariable('scores', 'f4', ['time', 'grid_point'])
+    for var in var_predictors:
+        ofile.createVariable(var, 'f4', ['time', 'grid_point'])
     ofile.createVariable('time', 'f4', ['time'])
     ofile.variables['time'][:] = int(time.time())
     ofile.variables['latitude'][:] = lats
     ofile.variables['longitude'][:] = lons
-    ofile.variables['scores'][:] = gscores
+    for v, var in enumerate(var_predictors):
+        ofile.variables[var][:] = gscores[:, :, v]
     ofile.close()
 
 
