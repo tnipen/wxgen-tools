@@ -12,6 +12,7 @@ from matplotlib.widgets import Button, RadioButtons
 def main():
     parser = argparse.ArgumentParser(description='')
     parser.add_argument('file', help='')
+    parser.add_argument('-clim', type=verif.util.parse_numbers, help='Colorbar limits', dest='clim')
 
     args = parser.parse_args()
     file = netCDF4.Dataset(args.file, 'r')
@@ -22,18 +23,19 @@ def main():
     Itime = 0
 
     axdata = mpl.axes([0, 0, 0.6, 0.9])
-    callback = Data(file, axdata)
+    view = View(file, axdata)
+    view.clim = args.clim
     axprev = mpl.axes([0.6, 0.05, 0.1, 0.075])
     axnext = mpl.axes([0.71, 0.05, 0.1, 0.075])
     axclose = mpl.axes([0.82, 0.05, 0.1, 0.075])
     bnext = Button(axnext, 'Next')
-    bnext.on_clicked(callback.next)
+    bnext.on_clicked(view.next)
     bprev = Button(axprev, 'Prev')
-    bprev.on_clicked(callback.prev)
+    bprev.on_clicked(view.prev)
     bprev = Button(axprev, 'Prev')
-    bprev.on_clicked(callback.prev)
+    bprev.on_clicked(view.prev)
     bclose = Button(axclose, 'Close')
-    bclose.on_clicked(callback.close)
+    bclose.on_clicked(view.close)
     variables = [var for var in file.variables if var not in ['time', 'latitude', 'longitude', 'projection_regular_ll', 'forecast_reference_time', 'altitude']]
     axvars = mpl.axes([0.62, 0.5, 0.1, len(variables)*0.075])
     axvars.set_axis_bgcolor([0,0,0,0])
@@ -41,24 +43,28 @@ def main():
     bvars = RadioButtons(axvars, variables)
     for circle in bvars.circles:
         circle.set_radius(0.1)
-    bvars.on_clicked(callback.set_variable)
-    callback.set_variable(variables[0])
+    bvars.on_clicked(view.set_variable)
+    view.set_variable(variables[0])
 
     mpl.show()
 
     file.close()
 
 
-class Data(object):
+class View(object):
     index = 0
     def __init__(self, file, ax):
         self.file = file
         self.ax = ax
         self.p = None
+        self.clim = None
         self.colorbar = None
         self.longitudes = self.file.variables['longitude'][:]
         self.latitudes = self.file.variables['latitude'][:]
-        self.times = self.file.variables['time'][:]
+        if 'time' in self.file.variables:
+            self.times = self.file.variables['time'][:]
+        else:
+            self.times = [0]
         self.cmap = "RdBu_r"
     def next(self, event):
         self.index += 1
@@ -71,26 +77,32 @@ class Data(object):
 
     def set_variable(self, event):
         self.variable = event
-        print "Setting variable"
         if self.colorbar is not None:
-            print "Removing"
             self.colorbar.remove()
         self.colorbar = None
         self.p = None
         self.draw()
 
     def draw(self):
-        print "draw"
         if self.index >= self.file.variables[self.variable].shape[0]:
             self.index = self.file.variables[self.variable].shape[0] - 1
         if self.index < 0:
             self.index = 0
-        data = self.file.variables[self.variable][self.index, 0, :]
+        num_dims = len(self.file.variables[self.variable].shape)
+        if num_dims == 3:
+            data = self.file.variables[self.variable][self.index, 0, :]
+        elif num_dims == 2:
+            data = self.file.variables[self.variable][self.index, :]
+        elif num_dims == 1:
+            data = self.file.variables[self.variable][:]
 
         if self.p is None:
-            min = np.nanpercentile(self.file.variables[self.variable][:], 10)
-            max = np.nanpercentile(self.file.variables[self.variable][:], 90)
-            print min, max
+            if self.clim is None:
+                min = np.nanpercentile(self.file.variables[self.variable][:], 1)
+                max = np.nanpercentile(self.file.variables[self.variable][:], 99)
+            else:
+                min = self.clim[0]
+                max = self.clim[1]
             self.p = self.ax.scatter(self.longitudes, self.latitudes, c=data, vmin=min, vmax=max, cmap=self.cmap)
         else:
             self.p.set_array(data)
@@ -99,7 +111,6 @@ class Data(object):
             self.times[self.index] / 3600 % 24))
 
         if self.colorbar is None:
-            print "colorbar"
             axcb = mpl.axes([0, 0.25, 0.03, 0.5])
             self.colorbar = mpl.colorbar(self.p, axcb)
         mpl.draw()
