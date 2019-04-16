@@ -1,0 +1,141 @@
+#!/usr/bin/env python
+import os
+import sys
+import numpy as np
+import matplotlib.pylab as mpl
+import argparse
+import verif.util
+import netCDF4
+import time
+
+
+def main():
+    parser = argparse.ArgumentParser(description='')
+    parser.add_argument('db', help='Database file')
+    parser.add_argument('-o', help='Config file', dest='ofilename')
+    parser.add_argument('-v', default='air_temperature_2m', help='Target variable', dest='target')
+    parser.add_argument('-vp', default='air_temperature_2m', help='Predictor variable', dest='predictor')
+    parser.add_argument('-dt', default=[1], type=parse_ints, help='Which timestep forward in time to predict?', dest='dt')
+    parser.add_argument('-t', type=parse_ints, help='Which times to use. Empty to use all.', dest='times')
+    parser.add_argument('-e', type=parse_ints, help='Which members to use. Empty to use all.', dest='ens')
+    parser.add_argument('-g', type=parse_ints, help='Which grid points to use. Empty to use all.', dest='gridpoints')
+
+    if len(sys.argv) == 1:
+        parser.print_help()
+        sys.exit(1)
+
+    args = parser.parse_args()
+    db = netCDF4.Dataset(args.db, 'r')
+    var = db.variables['air_temperature_2m']
+
+    if args.times is None:
+        It = range(len(db.dimensions['time']))
+    else:
+        It = args.times
+    if args.ens is None:
+        Ie = range(len(db.dimensions['ensemble_member']))
+    else:
+        Ie = args.ens
+    if args.gridpoints is None:
+        Ig = range(len(db.dimensions['grid_point']))
+    else:
+        Ig = args.gridpoints
+
+    lons = db.variables['longitude'][Ig]
+    lats = db.variables['latitude'][Ig]
+
+    # Subset data
+    predictor_data = np.moveaxis(db.variables[args.predictor][It, :, Ie, Ig], 2, 1)
+    target_data = np.moveaxis(db.variables[args.target][It, :, Ie, Ig], 2, 1)
+
+    # Collapse time and ensemble dimension
+    shape = predictor_data.shape
+    predictor_data = predictor_data.reshape(shape[0] * shape[1], shape[2], shape[3])
+    target_data = target_data.reshape(shape[0] * shape[1], shape[2], shape[3])
+    Ilt = 4
+    target = target_data[:, Ilt + 4, :]
+    predictors = predictor_data[:, Ilt, :]
+
+    G = target_data.shape[2] # len(db.dimensions['grid_point'])
+    C = target_data.shape[0]
+
+    print("Cases: %d Grid points: %d" % (C, G))
+
+    metric = Mae()
+
+    # Target dataset: cases, leadtimes, grid_points
+    # Target0 cases, grid_points
+    # Target1 cases, grid_points
+
+    # Create
+    # Scores matrix Mij How good is predictor set i when comparing with j
+    scores = calculate_matrix(target)
+
+    N = 10
+
+    # Find analogs
+    gscores = np.zeros([N, G], 'float32')
+    gbest = []
+    for n in range(N):
+        for g in range(G):
+            # print g
+            for c in range(C):
+                curr = np.abs(predictors[c, g] - predictors[:, g])
+                for gb in gbest:
+                    curr += np.abs(predictors[c, gb] - predictors[:, g])
+                I = np.argsort(curr)
+                Ibest = I[1:5]
+                gscores[n, g] += np.mean(scores[c, Ibest])
+        gscores[n, :] /= C
+        # Don't allow a point to be picked again
+        all_gbest = [q for q in np.argsort(gscores[n, :]) if q not in gbest]
+        curr_gbest = all_gbest[0]
+        print curr_gbest
+        gbest += [curr_gbest]
+    print np.min(gscores, axis=1)
+
+
+    # Write data to output file
+    ofile = netCDF4.Dataset(args.ofilename, 'w')
+    ofile.createDimension('grid_point', G)
+    ofile.createDimension('time', N)
+    ofile.createVariable('latitude', 'f4', ['grid_point'])
+    ofile.createVariable('longitude', 'f4', ['grid_point'])
+    ofile.createVariable('scores', 'f4', ['time', 'grid_point'])
+    ofile.createVariable('time', 'f4', ['time'])
+    ofile.variables['time'][:] = int(time.time())
+    ofile.variables['latitude'][:] = lats
+    ofile.variables['longitude'][:] = lons
+    ofile.variables['scores'][:] = gscores
+    ofile.close()
+
+
+class Mae(object):
+    def calc(self, obs, fcst):
+        return np.mean(np.abs(obs - fcst))
+
+
+class Precip(object):
+    def calc(self, obs, fcst):
+        return np.mean(np.abs(np.sqrt(obs) - np.sqrt(fcst)))
+
+
+def calculate_matrix(target, metric=Mae()):
+    """
+    Arguments:
+        target (np.array): C * G
+    """
+    C = target.shape[0]
+    matrix = np.zeros([C, C])
+    for i in range(C):
+        for j in range(C):
+            matrix[i, j] = metric.calc(target[i, :], target[j, :])
+    return matrix
+
+
+def parse_ints(string):
+    return [int(i) for i in verif.util.parse_numbers(string)]
+
+
+if __name__ == "__main__":
+    main()
