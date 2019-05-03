@@ -135,11 +135,10 @@ def main():
     ofile = netCDF4.Dataset(args.ofile, 'a')
 
     # Add history string
-    history_str = "%s Calibrated database with variables %s" % (datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S +00:00'), ','.join(vars))
-    if args.gridded:
-        history_str += " gridded"
+    command = ' '.join(sys.argv[1:])
+    history_str = "%s calibrate_db %s" % (datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S +00:00'), command)
     if hasattr(ifile, "history"):
-        history_str = [ifile.history, history_str]
+        history_str = [history_str, ifile.history]
     ofile.history = history_str
 
     ifile.close()
