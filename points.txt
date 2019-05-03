@@ -1,3 +1,0 @@
-lat;lon;id;variable;weight
-60;10;0;0;1
-61;10;0;0;0.5
