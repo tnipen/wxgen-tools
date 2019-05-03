@@ -1,0 +1,49 @@
+#!/usr/bin/env python3
+import os
+import sys
+import argparse
+import numpy as np
+import datetime
+
+
+def main():
+    parser = argparse.ArgumentParser(description='')
+    parser.add_argument('ofilename', help='Write dates to this filename')
+
+    if len(sys.argv) == 1:
+       parser.print_help()
+       sys.exit(1)
+
+    args = parser.parse_args()
+    dates = get_hindcast_runs()
+
+    file = open(args.ofilename, 'w')
+    for date in dates:
+       file.write("%s\n" % date)
+    file.close()
+
+
+def get_hindcast_runs():
+    """ Returns a list of YYYYMMDD values for which there are reforecasts runs available
+        Only download dates after ECMWF changed to 0.2 degree resolution, which happened on 20160308
+    """
+    start_dates = [20160310, 20160314]  # Twice a week
+    end_date = int(datetime.date.today().strftime("%Y%m%d"))
+    dates = list()
+
+    for start_date in start_dates:
+        date = start_date
+        while date < end_date:
+            dates += [date]
+            year = date // 10000
+            month = date // 100 % 100
+            day = int(date % 100)
+            # Increment date by 1 week
+            date = int((datetime.datetime(year, month, day, 0) + datetime.timedelta(7)).strftime('%Y%m%d'))
+
+    list.sort(dates)
+    return dates
+
+
+if __name__ == "__main__":
+    main()
