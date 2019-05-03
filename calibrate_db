@@ -34,16 +34,18 @@ def main():
     # Which calibration function to use on each variable?
     var2func = {"air_temperature_2m": quantile_mapping,
           "precipitation_amount": quantile_mapping,
-          "sea_level_pressure": multiplication,
-          "cloud_area_fraction": addition,
+          "sea_level_pressure": addition,
+          "cloud_area_fraction": quantile_mapping,
           "x_wind_10m": multiplication,
-          "y_wind_10m": multiplication}
+          "y_wind_10m": multiplication,
+          "dew_point_temperature_2m": quantile_mapping,
+          "integral_of_surface_downwelling_shortwave_flux_in_air_wrt_time": quantile_mapping}
 
     # Which variables to calibrate
     if args.variables is not None:
         vars = args.variables.split(',')
     else:
-        vars = [var for var in ifile.variables if var not in ["latitude", "longitude", "time", "lead_time", "projection_regular_ll"]]
+        vars = [var for var in ifile.variables if var not in ["latitude", "longitude", "time", "lead_time", "projection_regular_ll", "altitude"]]
 
     # Write to output file
     leadtimes = ifile.variables["lead_time"][:]
@@ -53,6 +55,9 @@ def main():
         ofile = netCDF4.Dataset(args.ofile, 'a')
         print("Processing variable " + var)
         sys.stdout.flush()
+        if var not in var2func:
+            print("No calibration function for %s defined. Skipping." % var)
+            continue
         func = var2func[var]
 
         """
@@ -130,11 +135,11 @@ def main():
     ofile = netCDF4.Dataset(args.ofile, 'a')
 
     # Add history string
-    history_str = "%s Calibrated database:" % (datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S +00:00'))
+    history_str = "%s Calibrated database with variables %s" % (datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S +00:00'), ','.join(vars))
     if args.gridded:
         history_str += " gridded"
     if hasattr(ifile, "history"):
-        history_str = ifile.history + '\n' + history_str
+        history_str = [ifile.history, history_str]
     ofile.history = history_str
 
     ifile.close()
