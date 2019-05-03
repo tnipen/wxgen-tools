@@ -11,6 +11,9 @@ def main():
     parser.add_argument('-o', help='Output filename', dest="ofilename", required=True)
     parser.add_argument('-f', help='Overwrite existing file?', dest="force", action="store_true")
     parser.add_argument('-d', type=int, help='Hindcast run date', dest="date", required=True)
+    parser.add_argument('-latrange', help='Latitude range', required=True)
+    parser.add_argument('-lonrange', help='Longitude range', required=True)
+    parser.add_argument('-c', help='Download control member? If no, then download perturbed members.', dest="control", action="store_true")
 
     args = parser.parse_args()
     dates = get_hindcast_runs()
@@ -18,8 +21,10 @@ def main():
         print("Not a valid hindcast date")
         sys.exit()
 
-    download(args.ofilename, args.date, [60,61], [10,11], True)
-    #download_geopotential("geopotential.grb", [60,61], [10,11])
+    latrange = [float(lr) for lr in args.latrange.split(',')]
+    lonrange = [float(lr) for lr in args.lonrange.split(',')]
+
+    download(args.ofilename, args.date, [60,61], [10,11], args.control)
 
 
 def download(filename, date, lat_range, lon_range, control, resolution=0.2):
@@ -74,29 +79,6 @@ def download(filename, date, lat_range, lon_range, control, resolution=0.2):
         req["type"] = "pf"
     print(req)
     # server.execute(req ,filename)
-
-
-def download_geopotential(filename, lat_range, lon_range, resolution=0.2):
-    """ Downloads the geopotential height field """
-    domain_str = "%d/%d/%d/%d" % (lat_range[0], lon_range[0], lat_range[1], lon_range[1])
-    server = ECMWFService("mars")
-    req = {
-         "class": "od",
-         "hdate": "20150310",
-         "date":  "20160310",
-         "stream": "enfh",
-         "expver": "0001",
-         "levtype": "sfc",
-         "param": "129.128",
-         "step": "0",
-         "time": "00",
-         "grid": "%g/%g" % (resolution, resolution),
-         "area": domain_str,
-         "ensemble": "0",
-         "type": "cf"
-         }
-    print(req)
-    server.execute(req ,filename)
 
 
 def get_hindcast_dates(hindcast_run_date):

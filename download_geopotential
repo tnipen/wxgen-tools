@@ -1,0 +1,47 @@
+#!/usr/bin/env python3
+import os
+import sys
+import argparse
+import datetime
+from ecmwfapi import ECMWFService
+
+
+def main():
+    parser = argparse.ArgumentParser(description='')
+    parser.add_argument('-o', help='Output filename', dest="ofilename", required=True)
+    parser.add_argument('-latrange', help='Latitude range', required=True)
+    parser.add_argument('-lonrange', help='Longitude range', required=True)
+
+    args = parser.parse_args()
+
+    latrange = [float(lr) for lr in args.latrange.split(',')]
+    lonrange = [float(lr) for lr in args.lonrange.split(',')]
+
+    download_geopotential(args.ofilename, [60,61], [10,11])
+
+
+def download_geopotential(filename, lat_range, lon_range, resolution=0.2):
+    """ Downloads the geopotential height field """
+    domain_str = "%d/%d/%d/%d" % (lat_range[0], lon_range[0], lat_range[1], lon_range[1])
+    server = ECMWFService("mars")
+    req = {
+         "class": "od",
+         "hdate": "20150310",
+         "date":  "20160310",
+         "stream": "enfh",
+         "expver": "0001",
+         "levtype": "sfc",
+         "param": "129.128",
+         "step": "0",
+         "time": "00",
+         "grid": "%g/%g" % (resolution, resolution),
+         "area": domain_str,
+         "ensemble": "0",
+         "type": "cf"
+         }
+    print(req)
+    server.execute(req ,filename)
+
+
+if __name__ == "__main__":
+    main()
