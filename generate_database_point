@@ -41,7 +41,7 @@ def main():
    units += ["W s/m^2"]
    func += [np.mean]
    names += ["integral_of_surface_downwelling_shortwave_flux_in_air_wrt_time"]
-   deacc += [True]
+   deacc += [False]
 
    vars += ["dew_point_temperature_2m"]
    units += ["K"]
@@ -95,6 +95,17 @@ def main():
    vLeadTime[:] = np.arange(6, args.segment_length*24 + 6, args.dt)
    vLatitude = ofile.createVariable("latitude", "f4", ("grid_point"))
    vLongitude = ofile.createVariable("longitude", "f4", ("grid_point"))
+   if "x" in points[0] and "y" in points[0]:
+       vX = ofile.createVariable("x", "f4", ("grid_point"))
+       vX.units = "m"
+       vX.standard_name = "projection_x_coordinate"
+       vY = ofile.createVariable("y", "f4", ("grid_point"))
+       vY.units = "m"
+       vY.standard_name = "projection_y_coordinate"
+       ox = [point["x"] for point in points]
+       oy = [point["y"] for point in points]
+       vX[:] = ox
+       vY[:] = oy
 
    vLongitude.long_name = "longitude"
    vLongitude.units = "degrees_east"
@@ -385,6 +396,8 @@ def read_points_file(filename):
         curr = dict()
         curr['lat'] = float(words[header.index('lat')])
         curr['lon'] = float(words[header.index('lon')])
+        curr['x'] = float(words[header.index('x')])
+        curr['y'] = float(words[header.index('y')])
         points += [curr]
 
     file.close()
