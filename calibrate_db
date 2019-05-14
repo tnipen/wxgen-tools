@@ -36,10 +36,7 @@ def main():
           "precipitation_amount": quantile_mapping,
           "sea_level_pressure": addition,
           "cloud_area_fraction": quantile_mapping,
-          "x_wind_10m": multiplication,
-          "y_wind_10m": multiplication,
-          "dew_point_temperature_2m": quantile_mapping,
-          "integral_of_surface_downwelling_shortwave_flux_in_air_wrt_time": quantile_mapping}
+          "dew_point_temperature_2m": quantile_mapping}
 
     # Which variables to calibrate
     if args.variables is not None:
