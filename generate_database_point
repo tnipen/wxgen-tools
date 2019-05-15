@@ -31,23 +31,12 @@ def main():
    args = parser.parse_args()
 
    # Which variables to output
-   vars = ["air_temperature_2m", "precipitation_amount", "sea_level_pressure", "cloud_area_fraction", "x_wind_10m", "y_wind_10m"]
-   units = ["K", "kg/m^2", "Pa", "1", "m/s", "m/s"]
-   func = [np.mean, np.sum, np.mean, np.mean, np.mean, np.mean]
+   vars = ["air_temperature_2m", "precipitation_amount_acc", "sea_level_pressure", "cloud_area_fraction", "x_wind_10m", "y_wind_10m",
+           "integral_of_surface_downwelling_shortwave_flux_in_air_wrt_time", "dew_point_temperature_2m"]
+   units = ["K", "kg/m^2", "Pa", "1", "m/s", "m/s", "W s/m^2", "K"]
+   func = [np.mean, np.sum, np.mean, np.mean, np.mean, np.mean, np.mean, np.mean]
    names = [var for var in vars]
    deacc = [False for var in vars]
-
-   vars += ["ga_ssrd_1"]
-   units += ["W s/m^2"]
-   func += [np.mean]
-   names += ["integral_of_surface_downwelling_shortwave_flux_in_air_wrt_time"]
-   deacc += [False]
-
-   vars += ["dew_point_temperature_2m"]
-   units += ["K"]
-   func += [np.mean]
-   names += ["dew_point_temperature_2m"]
-   deacc += [False]
 
    indices = dict()
    for filename in args.index_filenames:
@@ -61,7 +50,7 @@ def main():
    points = read_points_file(args.pfilename)
 
    D = len(args.files) # Number of dates
-   O = int(24 * args.segment_length / args.dt) # Number of leadtimes
+   O = int(24 * args.segment_length / args.dt) + 1 # Number of leadtimes
    E = len(args.members) # Number of ensemble members
    G = len(points)
 
@@ -92,7 +81,7 @@ def main():
    vTime = ofile.createVariable("time", "i4", ("time"))
    vLeadTime = ofile.createVariable("lead_time", "i4", ("lead_time"))
    vLeadTime.units = "hours"
-   vLeadTime[:] = np.arange(6, args.segment_length*24 + 6, args.dt)
+   vLeadTime[:] = np.arange(0, args.segment_length*24 + 6, args.dt)
    vLatitude = ofile.createVariable("latitude", "f4", ("grid_point"))
    vLongitude = ofile.createVariable("longitude", "f4", ("grid_point"))
    if "x" in points[0] and "y" in points[0]:
@@ -229,6 +218,13 @@ def main():
             for t in range(0, Ntime):
                # These indices do not work for 24 h, because ideally you want timesteps to start at (t+1) * N
                # and not t * N + 1
+
+               I = range(t * N, (t + 1) * N)
+               values[var][t, :, :] = func[v](data[I, :, :], axis=0)
+               """
+               Let's disable this for now, otherwise we miss the first timestep
+               To reenable, change above to: O = int(24 * args.segment_length / args.dt) # Number of leadtimes
+               
                if deacc[v]:
                   # Don't use the first timestep, because there is no precipitation
                   I = range(t * N, (t + 1) * N + 1)
@@ -236,6 +232,7 @@ def main():
                else:
                   I = range(t * N + 1, (t + 1) * N + 1)
                   values[var][t, :, :] = func[v](data[I, :, :], axis=0)
+               """
       for key,unixtime2value in indices.items():
          for t in range(0, Ntime):
             # Add 1 to use convention that the timepoint is at the end of the

@@ -6,6 +6,8 @@
 idir=$1
 fdir=$2
 odir=$3
+xmlfile=lee_GribReaderConfig.xml
+#xmlfile=cdmGribReaderConfigEC_MAD.xml
 
 # Splits grib files into single files by forecast initialization date
 for file in `ls $idir/????????_*.grb`; do
@@ -23,7 +25,5 @@ for file in `ls $fdir/*.grb`; do
    echo "Converting $file"
    temp=$(basename -- "$file")
    ofile=$odir/`echo $temp | cut -d'.' -f 1`.nc
-   fimex $file $ofile --input.config lee_GribReaderConfig.xml --output.type nc\
-      --process.deaccumulateVariable precipitation_amount_acc
-   ncrename -v precipitation_amount_acc,precipitation_amount $ofile
+   fimex $file $ofile --input.config $xmlfile --output.type nc
 done

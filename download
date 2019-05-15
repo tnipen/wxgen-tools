@@ -47,9 +47,9 @@ def download(filename, date, lat_range, lon_range, control, resolution=0.2):
 
     server = ECMWFService("mars")
     """ Grib codes
-    134 Surface pressure (use sea level pressure instead)
-    143 Convective precipitation
-    151 Sea level pressure
+    134 Surface pressure
+    143 Convective precipitation (optional)
+    151 Sea level pressure (optional)
     164 Total cloud cover
     165 10m U wind
     166 0m V wind

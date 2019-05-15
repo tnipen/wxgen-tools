@@ -222,11 +222,29 @@
         <attribute name="standard_name" value="air_pressure_at_sea_level" type="string" />
         <attribute name="units" value="Pa" type="string" />
     </parameter>
+    <parameter name="lwe_thickness_of_convective_precipitation_amount" type="float">
+        <grib1 indicatorOfParameter="143" gribTablesVersionNo="128" identificationOfOriginatingGeneratingCentre="98" typeOfLevel="1"/>
+        <attribute name="long_name" value="Convective precipitation" type="string"/>
+        <attribute name="standard_name" value="lwe_thickness_of_convective_precipitation_amount" type="string"/>
+        <attribute name="units" value="m" type="string"/>
+    </parameter>
+    <parameter name="surface_air_pressure" type="float">
+        <grib1 indicatorOfParameter="134" gribTablesVersionNo="128" identificationOfOriginatingGeneratingCentre="98" typeOfLevel="1" levelNo="0"/>
+        <attribute name="long_name" value="Surface air pressure" type="string"/>
+        <attribute name="standard_name" value="surface_air_pressure" type="string"/>
+        <attribute name="units" value="Pa" type="string"/>
+    </parameter>
     <parameter name="sea_surface_temperature" type="float">
         <grib1 indicatorOfParameter="34" gribTablesVersionNo="128" identificationOfOriginatingGeneratingCentre="98"/>
         <attribute name="long_name" value="Sea Surface Temperature (SST)" type="string"/>
         <attribute name="standard_name" value="sea_surface_temperature" type="string"/>
         <attribute name="units" value="K" type="string"/>
+    </parameter>
+    <parameter name="integral_of_surface_downwelling_shortwave_flux_in_air_wrt_time" type="float">
+        <grib1 indicatorOfParameter="169" gribTablesVersionNo="128" identificationOfOriginatingGeneratingCentre="98" typeOfLevel="1" levelNo="0"/>
+        <attribute name="long_name" value="Accumulated surface SW downwelling radiation" type="string"/>
+        <attribute name="standard_name" value="integral_of_surface_downwelling_shortwave_flux_in_air_wrt_time" type="string"/>
+        <attribute name="units" value="W s/m^2" type="string"/>
     </parameter>
 
 </variables>
