@@ -2,9 +2,7 @@
 import os
 import sys
 import numpy as np
-import matplotlib.pylab as mpl
 import argparse
-import wxgen.util
 import netCDF4
 import shutil
 import time
@@ -26,7 +24,8 @@ def main():
 
     args = parser.parse_args()
     if args.file == args.ofile:
-        wxgen.util.error("Input file must be different than the output file")
+        print("Input file must be different than the output file")
+        sys.exit()
 
 
     shutil.copy(args.file, args.ofile)
