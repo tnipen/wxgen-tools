@@ -17,7 +17,7 @@ def main():
     latrange = [float(lr) for lr in args.latrange.split(',')]
     lonrange = [float(lr) for lr in args.lonrange.split(',')]
 
-    download_geopotential(args.ofilename, [60,61], [10,11])
+    download_geopotential(args.ofilename, latrange, lonrange)
 
 
 def download_geopotential(filename, lat_range, lon_range, resolution=0.2):
