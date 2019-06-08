@@ -24,7 +24,7 @@ def main():
     latrange = [float(lr) for lr in args.latrange.split(',')]
     lonrange = [float(lr) for lr in args.lonrange.split(',')]
 
-    download(args.ofilename, args.date, [60,61], [10,11], args.control)
+    download(args.ofilename, args.date, latrange, lonrange, args.control)
 
 
 def download(filename, date, lat_range, lon_range, control, resolution=0.2):
