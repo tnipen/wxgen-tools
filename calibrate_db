@@ -14,45 +14,52 @@ def main():
     parser.add_argument('file', help='NetCDF database')
     parser.add_argument('-o', type=str, help="Output file", dest="ofile", required=True)
     parser.add_argument('--debug', help='Show debug info', action="store_true")
-    parser.add_argument('-g', help='Do calibration separately on each gridpoint?', dest="gridded", action="store_true")
+    parser.add_argument('-a', help='Do calibration aggregated across all gridpoints', dest="aggregated", action="store_true")
     parser.add_argument('-lt', help='Which leadtimes to use for calibration?', dest="leadtimes")
     parser.add_argument('-v', help='Which variables to calibrate?', dest="variables")
+    parser.add_argument('-f', help='Overwrite output file if it already exists', dest="overwrite", action="store_true")
 
     if len(sys.argv) == 1:
         parser.print_help()
         sys.exit(1)
 
     args = parser.parse_args()
+
     if args.file == args.ofile:
         print("Input file must be different than the output file")
         sys.exit()
 
-
-    shutil.copy(args.file, args.ofile)
+    if args.overwrite or not os.path.exists(args.ofile):
+        shutil.copy(args.file, args.ofile)
     ifile = netCDF4.Dataset(args.file, 'r')
+
     # Which calibration function to use on each variable?
     var2func = {"air_temperature_2m": quantile_mapping,
-          "precipitation_amount": quantile_mapping,
+          "precipitation_amount_acc": quantile_mapping,
           "sea_level_pressure": addition,
           "cloud_area_fraction": quantile_mapping,
           "dew_point_temperature_2m": quantile_mapping}
+
+    var_acc = ['precipitation_amount_acc']
 
     # Which variables to calibrate
     if args.variables is not None:
         vars = args.variables.split(',')
     else:
-        vars = [var for var in ifile.variables if var not in ["latitude", "longitude", "time", "lead_time", "projection_regular_ll", "altitude"]]
+        vars = [var for var in ifile.variables if var not in ["x", "y", "z", "latitude", "longitude", "time", "lead_time", "projection_regular_ll", "altitude"]]
 
     # Write to output file
     leadtimes = ifile.variables["lead_time"][:]
     Ileadtimes = range(len(leadtimes))
     has_single_spatial_dim = "grid_point" in ifile.dimensions
+    ofile = netCDF4.Dataset(args.ofile, 'a')
     for var in vars:
-        ofile = netCDF4.Dataset(args.ofile, 'a')
         print("Processing variable " + var)
         sys.stdout.flush()
         if var not in var2func:
             print("No calibration function for %s defined. Skipping." % var)
+            ofile.variables[var].calibration = "None"
+            ofile.close()
             continue
         func = var2func[var]
 
@@ -60,13 +67,19 @@ def main():
         For each leadtime, find the leadtime to use as reference. This will
         be the earliest leadtime for the same time of day.
         """
-        Irefs = [np.where(leadtimes[i] % 24 == leadtimes % 24)[0][0] for i in Ileadtimes]
+        if var in var_acc:
+            Irefs = [np.where(leadtimes[i] % 24 == leadtimes % 24)[0][0] for i in Ileadtimes[1:]]
+        else:
+            Irefs = [np.where(leadtimes[i] % 24 == leadtimes % 24)[0][0] for i in Ileadtimes]
 
         """
         Gridded calibration: Apply a separate calibration on each grid point
         """
-        if args.gridded:
+        if not args.aggregated:
             data = ifile.variables[var][:]
+            if var in var_acc:
+                data = np.diff(data, axis=1)
+
             # time, lead_time, ens, lat, lon
             if has_single_spatial_dim:
                 G = data.shape[3]
@@ -126,9 +139,8 @@ def main():
                     shape = [shape[j] for j in range(len(shape)) if j != 1]
                     reshaped = np.reshape(values, shape)
                     ofile.variables[var][:, i, ...] = reshaped[:]
-        ofile.close()
-
-    ofile = netCDF4.Dataset(args.ofile, 'a')
+        ofile.variables[var].calibration = func.__name__
+        ofile.sync()
 
     # Add history string
     command = ' '.join(sys.argv[1:])
