@@ -35,7 +35,6 @@ def main():
 
     # Which calibration function to use on each variable?
     var2func = {"air_temperature_2m": quantile_mapping,
-          "precipitation_amount_acc": quantile_mapping,
           "sea_level_pressure": addition,
           "cloud_area_fraction": quantile_mapping,
           "dew_point_temperature_2m": quantile_mapping}
@@ -50,16 +49,18 @@ def main():
 
     # Write to output file
     leadtimes = ifile.variables["lead_time"][:]
-    Ileadtimes = range(len(leadtimes))
     has_single_spatial_dim = "grid_point" in ifile.dimensions
     ofile = netCDF4.Dataset(args.ofile, 'a')
     for var in vars:
+        if var in var_acc:
+            Ileadtimes = range(1, len(leadtimes))
+        else:
+            Ileadtimes = range(len(leadtimes))
         print("Processing variable " + var)
         sys.stdout.flush()
         if var not in var2func:
             print("No calibration function for %s defined. Skipping." % var)
             ofile.variables[var].calibration = "None"
-            ofile.close()
             continue
         func = var2func[var]
 
@@ -67,10 +68,7 @@ def main():
         For each leadtime, find the leadtime to use as reference. This will
         be the earliest leadtime for the same time of day.
         """
-        if var in var_acc:
-            Irefs = [np.where(leadtimes[i] % 24 == leadtimes % 24)[0][0] for i in Ileadtimes[1:]]
-        else:
-            Irefs = [np.where(leadtimes[i] % 24 == leadtimes % 24)[0][0] for i in Ileadtimes]
+        Irefs = [np.where(leadtimes[i] % 24 == leadtimes % 24)[0][0] for i in Ileadtimes]
 
         """
         Gridded calibration: Apply a separate calibration on each grid point
@@ -78,7 +76,8 @@ def main():
         if not args.aggregated:
             data = ifile.variables[var][:]
             if var in var_acc:
-                data = np.diff(data, axis=1)
+                data[:,1:,...] = np.diff(data, axis=1)
+                data[:,0,...] = 0
 
             # time, lead_time, ens, lat, lon
             if has_single_spatial_dim:
@@ -122,6 +121,8 @@ def main():
 
                                 reshaped = np.reshape(values, [ofile.variables[var].shape[0], ofile.variables[var].shape[2]])
                                 q[:, i, :, y, x] = reshaped
+            if var in var_acc:
+                data[:] = np.cumsum(data, axis=1)
             ofile.variables[var][:] = q
         else:
             data = ifile.variables[var]
