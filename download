@@ -52,7 +52,7 @@ def download(filename, date, lat_range, lon_range, control, resolution=0.2):
     151 Sea level pressure (optional)
     164 Total cloud cover
     165 10m U wind
-    166 0m V wind
+    166 10m V wind
     167 2m temperature
     168 2m dewpoint temperature
     169 Surface solar radiation
