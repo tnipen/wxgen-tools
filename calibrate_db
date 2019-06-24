@@ -37,6 +37,7 @@ def main():
     var2func = {"air_temperature_2m": quantile_mapping,
           "sea_level_pressure": addition,
           "cloud_area_fraction": quantile_mapping,
+          "precipitation_amount_acc": quantile_mapping,
           "dew_point_temperature_2m": quantile_mapping}
 
     var_acc = ['precipitation_amount_acc']
@@ -46,6 +47,11 @@ def main():
         vars = args.variables.split(',')
     else:
         vars = [var for var in ifile.variables if var not in ["x", "y", "z", "latitude", "longitude", "time", "lead_time", "projection_regular_ll", "altitude"]]
+
+    if "forecast_is_complete" in ifile.variables:
+        Itime = np.where(ifile.variables["forecast_is_complete"][:] == 1)[0]
+    else:
+        Itime = range(len(ifile.variables["time"]))
 
     # Write to output file
     leadtimes = ifile.variables["lead_time"][:]
@@ -68,7 +74,7 @@ def main():
         For each leadtime, find the leadtime to use as reference. This will
         be the earliest leadtime for the same time of day.
         """
-        Irefs = [np.where(leadtimes[i] % 24 == leadtimes % 24)[0][0] for i in Ileadtimes]
+        Irefs = [Ileadtimes[np.where(leadtimes[i] % 24 == leadtimes[Ileadtimes] % 24)[0][0]] for i in Ileadtimes]
 
         """
         Gridded calibration: Apply a separate calibration on each grid point
@@ -86,22 +92,30 @@ def main():
                 Y = data.shape[3]
                 X = data.shape[4]
             print("Allocating %d GB" % (np.product(ofile.variables[var].shape) / 1024.0 / 1024.0 / 1024.0 * 4.0))
-            q = np.zeros(ofile.variables[var].shape, float)
+            q = np.zeros(data.shape, float)
 
             if has_single_spatial_dim:
                 for g in range(G):
-                    for i in Ileadtimes:
+                    assert(len(Irefs) == len(Ileadtimes))
+                    for i, Ileadtime in enumerate(Ileadtimes):
                         Iref = Irefs[i]
-                        if i == Iref:
+                        if Ileadtime == Iref:
                             # Don't calibrate if reference leadtime
-                            q[:, i, :, g] = data[:, i, :, g]
+                            q[:, Ileadtime, :, g] = data[:, Ileadtime, :, g]
                         else:
-                            yy = np.sort(data[:, Iref, :, g].flatten())
-                            xx = np.sort(data[:, i, :, g].flatten())
-                            values = func(data[:, i, :, g].flatten(), xx, yy)
+                            yy = np.sort(data[Itime, Iref, :, g].flatten())
+                            xx = np.sort(data[Itime, Ileadtime, :, g].flatten())
+                            # Note: Only need to select Itime for the calibration part, not the output
+                            values = func(data[:, Ileadtime, :, g].flatten(), xx, yy)
 
                             reshaped = np.reshape(values, [ofile.variables[var].shape[0], ofile.variables[var].shape[2]])
-                            q[:, i, :, g] = reshaped[:]
+                            q[:, Ileadtime, :, g] = reshaped[:]
+                if 0 and args.debug:
+                    print(len(Itime))
+                    for Ileadtime in range(8):
+                        print(Ileadtime, np.nanmedian(data[Itime, Ileadtime, :, :]), np.nanmedian(q[Itime, Ileadtime, :, :]))
+                        print(Ileadtime, np.nanmean(data[Itime, Ileadtime, :, :]), np.nanmean(q[Itime, Ileadtime, :, :]))
+                        print(Ileadtime, np.nanmean(data[Itime, Ileadtime, :, :] <= 0.01), np.nanmean(q[Itime, Ileadtime, :, :] <= 0.01))
             else:
                 """
                 It might be possible to parallelize x and y, but it requires some work
@@ -122,10 +136,11 @@ def main():
                                 reshaped = np.reshape(values, [ofile.variables[var].shape[0], ofile.variables[var].shape[2]])
                                 q[:, i, :, y, x] = reshaped
             if var in var_acc:
-                data[:] = np.cumsum(data, axis=1)
+                q[:] = np.cumsum(q, axis=1)
             ofile.variables[var][:] = q
         else:
             data = ifile.variables[var]
+            # TODO: deal with forecast_is_complete
             for i in Ileadtimes:
                 s = time.time()
                 Iref = Irefs[i]
