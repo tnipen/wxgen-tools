@@ -9,54 +9,70 @@ import time
 import datetime
 
 
+""" Command-line interfact to calibrate function """
 def main():
-    parser = argparse.ArgumentParser(description='Climate adjust all lead-times in a NetCDF database')
+    parser = argparse.ArgumentParser(description='Calibrates a database such that all lead-times have the same climatology. Separate adjustment for each time of the day and for each gridpoint.')
     parser.add_argument('file', help='NetCDF database')
     parser.add_argument('-o', type=str, help="Output file", dest="ofile", required=True)
-    parser.add_argument('--debug', help='Show debug info', action="store_true")
-    parser.add_argument('-a', help='Do calibration aggregated across all gridpoints', dest="aggregated", action="store_true")
-    parser.add_argument('-lt', help='Which leadtimes to use for calibration?', dest="leadtimes")
     parser.add_argument('-v', help='Which variables to calibrate?', dest="variables")
     parser.add_argument('-f', help='Overwrite output file if it already exists', dest="overwrite", action="store_true")
+    parser.add_argument('-a', help='Do calibration aggregated across all gridpoints', dest="aggregated", action="store_true")
+    parser.add_argument('--debug', help='Show debug info', action="store_true")
 
     if len(sys.argv) == 1:
         parser.print_help()
         sys.exit(1)
 
     args = parser.parse_args()
+    calibrate(**vars(args))
 
-    if args.file == args.ofile:
-        print("Input file must be different than the output file")
-        sys.exit()
 
-    if args.overwrite or not os.path.exists(args.ofile):
-        shutil.copy(args.file, args.ofile)
-    ifile = netCDF4.Dataset(args.file, 'r')
-
-    # Which calibration function to use on each variable?
+""" See command-line interfact above for description of each variable """
+def calibrate(file, ofile, variables=None, overwrite=False, aggregated=False, debug=False):
+    """
+    Which calibration function to use on each variable?
+    """
     var2func = {"air_temperature_2m": quantile_mapping,
           "sea_level_pressure": addition,
           "cloud_area_fraction": quantile_mapping,
           "precipitation_amount_acc": quantile_mapping,
           "dew_point_temperature_2m": quantile_mapping}
 
+    """
+    List of accumulated variables. These are deaccumulated first, calibrated,
+    then accumulated. Also, the first timestep is not calibrated nor used in
+    the calibration since its value is always 0.
+    """
     var_acc = ['precipitation_amount_acc']
 
-    # Which variables to calibrate
-    if args.variables is not None:
-        vars = args.variables.split(',')
-    else:
-        vars = [var for var in ifile.variables if var not in ["x", "y", "z", "latitude", "longitude", "time", "lead_time", "projection_regular_ll", "altitude"]]
+    if file == ofile:
+        print("Input file must be different than the output file")
+        sys.exit()
 
+    if overwrite or not os.path.exists(ofile):
+        shutil.copy(file, ofile)
+    ifile = netCDF4.Dataset(file, 'r')
+
+    """
+    Which variables to calibrate
+    """
+    if variables is None:
+        list_of_non_variables = ["x", "y", "z", "crs", "forecast_is_complete", "latitude", "longitude", "time", "lead_time", "projection_regular_ll", "altitude"]
+        vars = [var for var in ifile.variables if var not in list_of_non_variables]
+    else:
+        vars = variables.split(',')
+
+    """
+    Create a list of which times to use in the calibration
+    """
     if "forecast_is_complete" in ifile.variables:
         Itime = np.where(ifile.variables["forecast_is_complete"][:] == 1)[0]
     else:
         Itime = range(len(ifile.variables["time"]))
 
-    # Write to output file
     leadtimes = ifile.variables["lead_time"][:]
     has_single_spatial_dim = "grid_point" in ifile.dimensions
-    ofile = netCDF4.Dataset(args.ofile, 'a')
+    ofile = netCDF4.Dataset(ofile, 'a')
     for var in vars:
         if var in var_acc:
             Ileadtimes = range(1, len(leadtimes))
@@ -79,7 +95,7 @@ def main():
         """
         Gridded calibration: Apply a separate calibration on each grid point
         """
-        if not args.aggregated:
+        if not aggregated:
             data = ifile.variables[var][:]
             if var in var_acc:
                 data[:,1:,...] = np.diff(data, axis=1)
@@ -110,7 +126,7 @@ def main():
 
                             reshaped = np.reshape(values, [ofile.variables[var].shape[0], ofile.variables[var].shape[2]])
                             q[:, Ileadtime, :, g] = reshaped[:]
-                if 0 and args.debug:
+                if 0 and debug:
                     print(len(Itime))
                     for Ileadtime in range(8):
                         print(Ileadtime, np.nanmedian(data[Itime, Ileadtime, :, :]), np.nanmedian(q[Itime, Ileadtime, :, :]))
