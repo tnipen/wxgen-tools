@@ -107,6 +107,7 @@ def calibrate(file, ofile, variables=None, overwrite=False, aggregated=False, de
             else:
                 Y = data.shape[3]
                 X = data.shape[4]
+            print("Variable size: ", ofile.variables[var].shape)
             print("Allocating %d GB" % (np.product(ofile.variables[var].shape) / 1024.0 / 1024.0 / 1024.0 * 4.0))
             q = np.zeros(data.shape, float)
 
@@ -148,12 +149,15 @@ def calibrate(file, ofile, variables=None, overwrite=False, aggregated=False, de
                                 yy = np.sort(data[:, Iref, :, y, x].flatten())
                                 xx = np.sort(data[:, i, :, y, x].flat)
                                 values = func(data[:, i, :, y, x].flat, xx, yy)
-
-                                reshaped = np.reshape(values, [ofile.variables[var].shape[0], ofile.variables[var].shape[2]])
-                                q[:, i, :, y, x] = reshaped
+                                q[:, i, :, y, x] = np.reshape(values, [ofile.variables[var].shape[0], ofile.variables[var].shape[2]])
+                                del xx
+                                del yy
+                                del values
+            del data
             if var in var_acc:
-                q[:] = np.cumsum(q, axis=1)
-            ofile.variables[var][:] = q
+                ofile.variables[var][:] = np.cumsum(q, axis=1)
+            else:
+                ofile.variables[var][:] = q
         else:
             data = ifile.variables[var]
             # TODO: deal with forecast_is_complete
