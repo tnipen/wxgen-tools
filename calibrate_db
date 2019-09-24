@@ -16,7 +16,8 @@ def main():
     parser.add_argument('-o', type=str, help="Output file", dest="ofile", required=True)
     parser.add_argument('-v', help='Which variables to calibrate?', dest="variables")
     parser.add_argument('-f', help='Overwrite output file if it already exists', dest="overwrite", action="store_true")
-    parser.add_argument('-a', help='Do calibration aggregated across all gridpoints', dest="aggregated", action="store_true")
+    parser.add_argument('-n', default=101, type=int, help='How many quantiles to store?', dest="num_quantiles")
+    parser.add_argument('-os', help='Optimize for speed (instead of memory)', dest="optimized_speed", action="store_true")
     parser.add_argument('--debug', help='Show debug info', action="store_true")
 
     if len(sys.argv) == 1:
@@ -28,15 +29,15 @@ def main():
 
 
 """ See command-line interfact above for description of each variable """
-def calibrate(file, ofile, variables=None, overwrite=False, aggregated=False, debug=False):
+def calibrate(file, ofile, variables=None, overwrite=False, debug=False, num_quantiles=101, optimized_speed=False):
     """
     Which calibration function to use on each variable?
     """
     var2func = {"air_temperature_2m": quantile_mapping,
-          "sea_level_pressure": addition,
-          "cloud_area_fraction": quantile_mapping,
-          "precipitation_amount_acc": quantile_mapping,
-          "dew_point_temperature_2m": quantile_mapping}
+                "sea_level_pressure": addition,
+                "cloud_area_fraction": quantile_mapping,
+                "precipitation_amount_acc": quantile_mapping,
+                "dew_point_temperature_2m": quantile_mapping}
 
     """
     List of accumulated variables. These are deaccumulated first, calibrated,
@@ -71,19 +72,21 @@ def calibrate(file, ofile, variables=None, overwrite=False, aggregated=False, de
         Itime = range(len(ifile.variables["time"]))
 
     leadtimes = ifile.variables["lead_time"][:]
+    LT = len(leadtimes)
     has_single_spatial_dim = "grid_point" in ifile.dimensions
     ofile = netCDF4.Dataset(ofile, 'a')
     for var in vars:
-        if var in var_acc:
-            Ileadtimes = range(1, len(leadtimes))
-        else:
-            Ileadtimes = range(len(leadtimes))
         print("Processing variable " + var)
         sys.stdout.flush()
         if var not in var2func:
             print("No calibration function for %s defined. Skipping." % var)
             ofile.variables[var].calibration = "None"
             continue
+
+        if var in var_acc:
+            Ileadtimes = range(1, len(leadtimes))
+        else:
+            Ileadtimes = range(len(leadtimes))
         func = var2func[var]
 
         """
@@ -93,88 +96,84 @@ def calibrate(file, ofile, variables=None, overwrite=False, aggregated=False, de
         Irefs = [Ileadtimes[np.where(leadtimes[i] % 24 == leadtimes[Ileadtimes] % 24)[0][0]] for i in Ileadtimes]
 
         """
-        Gridded calibration: Apply a separate calibration on each grid point
+        Create calibration map of reference quantiles and forecast quantiles
+        Resample the full QQ map to save memory and computation time
         """
-        if not aggregated:
-            data = ifile.variables[var][:]
-            if var in var_acc:
-                data[:,1:,...] = np.diff(data, axis=1)
-                data[:,0,...] = 0
-
-            # time, lead_time, ens, lat, lon
-            if has_single_spatial_dim:
-                G = data.shape[3]
-            else:
-                Y = data.shape[3]
-                X = data.shape[4]
-            print("Variable size: ", ofile.variables[var].shape)
-            print("Allocating %d GB" % (np.product(ofile.variables[var].shape) / 1024.0 / 1024.0 / 1024.0 * 4.0))
-            q = np.zeros(data.shape, float)
-
-            if has_single_spatial_dim:
-                for g in range(G):
-                    assert(len(Irefs) == len(Ileadtimes))
-                    for i, Ileadtime in enumerate(Ileadtimes):
-                        Iref = Irefs[i]
-                        if Ileadtime == Iref:
-                            # Don't calibrate if reference leadtime
-                            q[:, Ileadtime, :, g] = data[:, Ileadtime, :, g]
-                        else:
-                            yy = np.sort(data[Itime, Iref, :, g].flatten())
-                            xx = np.sort(data[Itime, Ileadtime, :, g].flatten())
-                            # Note: Only need to select Itime for the calibration part, not the output
-                            values = func(data[:, Ileadtime, :, g].flatten(), xx, yy)
-
-                            reshaped = np.reshape(values, [ofile.variables[var].shape[0], ofile.variables[var].shape[2]])
-                            q[:, Ileadtime, :, g] = reshaped[:]
-                if 0 and debug:
-                    print(len(Itime))
-                    for Ileadtime in range(8):
-                        print(Ileadtime, np.nanmedian(data[Itime, Ileadtime, :, :]), np.nanmedian(q[Itime, Ileadtime, :, :]))
-                        print(Ileadtime, np.nanmean(data[Itime, Ileadtime, :, :]), np.nanmean(q[Itime, Ileadtime, :, :]))
-                        print(Ileadtime, np.nanmean(data[Itime, Ileadtime, :, :] <= 0.01), np.nanmean(q[Itime, Ileadtime, :, :] <= 0.01))
-            else:
-                """
-                It might be possible to parallelize x and y, but it requires some work
-                to parallelize the calibration functions
-                """
-                for x in range(X):
-                    for y in range(Y):
-                        for i in Ileadtimes:
-                            Iref = Irefs[i]
-                            if i == Iref:
-                                # Don't calibrate if reference leadtime
-                                q[:, i, :, y, x] = data[:, i, :, y, x]
-                            else:
-                                yy = np.sort(data[:, Iref, :, y, x].flatten())
-                                xx = np.sort(data[:, i, :, y, x].flat)
-                                values = func(data[:, i, :, y, x].flat, xx, yy)
-                                q[:, i, :, y, x] = np.reshape(values, [ofile.variables[var].shape[0], ofile.variables[var].shape[2]])
-                                del xx
-                                del yy
-                                del values
-            del data
-            if var in var_acc:
-                ofile.variables[var][:] = np.cumsum(q, axis=1)
-            else:
-                ofile.variables[var][:] = q
+        ncvar = ifile.variables[var]
+        print("Allocating %.2f GB" % (np.product(ncvar.shape) * 4.0 / 1024 ** 3))
+        data = ncvar[:]
+        if has_single_spatial_dim:
+            # time, lead_time, ens, point
+            G = ncvar.shape[3]
         else:
-            data = ifile.variables[var]
-            # TODO: deal with forecast_is_complete
-            for i in Ileadtimes:
-                s = time.time()
-                Iref = Irefs[i]
-                if i == Iref:
-                    ofile.variables[var][:, i, ...] = ifile.variables[var][:, i, ...]
-                else:
-                    dataref = data[:, Iref, ...]
-                    xx = np.sort(data[:, i, ...].flatten())
-                    yy = np.sort(dataref[:, ...].flatten())
-                    values = func(ifile.variables[var][:, i, ...].flatten(), xx, yy)
-                    shape = [size for size in ofile.variables[var].shape]
-                    shape = [shape[j] for j in range(len(shape)) if j != 1]
-                    reshaped = np.reshape(values, shape)
-                    ofile.variables[var][:, i, ...] = reshaped[:]
+            # time, lead_time, ens, lat, lon
+            raise NotImplementedError
+            Y = ncvar.shape[3]
+            X = ncvar.shape[4]
+        T = len(Itime)
+        E = ncvar.shape[2]
+
+        # Deaccumulate
+        if var in var_acc:
+            print("Deaccumulating")
+            for i in range(data.shape[1]-1, 0, -1):
+                data[:, i, ...] -= data[:, i-1, ...]
+
+        qq_map = np.zeros([num_quantiles, LT, G])
+        t0 = time.time()
+        for i, Ileadtime in enumerate(Ileadtimes):
+            q = np.reshape(data[Itime, Ileadtime, :, :], [T * E, G])
+            q = np.sort(q, axis=0)
+            # Resample the sorted array using a set of quantiles
+            Iqq = [int(I) for I in np.linspace(0, T * E - 1, num_quantiles)]
+            # print(i, np.mean(q[Iqq, :]))
+            qq_map[:, Ileadtime, :] = q[Iqq, :]
+        if debug:
+            print("QQ map: %.1f" % (time.time() - t0))
+
+        """
+        Adjust forecast using the map
+        """
+        t0 = time.time()
+        assert(len(Irefs) == len(Ileadtimes))
+        shape = [data.shape[0], data.shape[2], data.shape[3]]
+        accum = np.zeros(shape)
+        t0 = time.time()
+        for i, Ileadtime in enumerate(Ileadtimes):
+            Iref = Irefs[i]
+            #q = np.zeros(shape, float)
+            if Ileadtime == Iref:
+                # Don't calibrate if reference leadtime
+                pass
+            else:
+                for g in range(G):
+                    # Note: Only need to select Itime for the calibration part, not the output
+                    values = func(data[:, Ileadtime, :, g].flatten(), qq_map[:, Ileadtime, g], qq_map[:, Iref, g])
+
+                    reshaped = np.reshape(values, [ofile.variables[var].shape[0], ofile.variables[var].shape[2]])
+                    data[:, Ileadtime, :, g] = reshaped[:]
+        if debug:
+            print("QQ forecast: %.1f" % (time.time() - t0))
+        oncvar = ofile.variables[var]
+        # Accumulate
+        if var in var_acc:
+            if debug:
+                print("Accumulating")
+            for i in range(1, data.shape[1]):
+                data[:, i, ...] += data[:, i-1, ...]
+
+        if debug:
+            print("Writing to disk")
+        if optimized_speed:
+            oncvar[:] = data
+        else:
+            """
+            To save memory, write each time separately and sync the file to disk
+            """
+            for i in range(data.shape[0]):
+                #print("Writing %d" % i)
+                oncvar[i, ...] = data[i, ...]
+                ofile.sync()
         ofile.variables[var].calibration = func.__name__
         ofile.sync()
 
